@@ -1,6 +1,6 @@
 from textual import on
 from textual.app import App
-from textual.containers import ScrollableContainer
+from textual.containers import VerticalGroup
 from textual.reactive import reactive
 from textual.widgets import Header, Footer, Static, Button
 
@@ -10,7 +10,10 @@ INCR = 3
 
 class Job(Button):
     """ A job. """
-    pass
+    def __init__(self, label: str, jid: str, **kwargs):
+        # Initialisation du bouton avec le label et l'id
+        super().__init__(label, **kwargs)
+        self.jid = jid
 
 class Trial(Button):
     """ A trial. """
@@ -31,7 +34,7 @@ class Alljobs(Static):
 
         # Ajout des jobs
         for job in job_lists:
-            job_button = Job(f"{job}")
+            job_button = Job(label=str(job), jid=f"{job}")
             self.mount(job_button)
 
     def watch_n_jobs(self):
@@ -44,13 +47,16 @@ class Alljobs(Static):
         # Nouveaux jobs selon résultat du ls
         self.read_job_log()
 
-class Specificjobs(Static):
+class Alltrials(Static):
     """The page with all trials of a job."""
 
-    # Par défaut il sera vide pour pas overcrowder
-    def compose(self):
-        """temp"""
-        yield Trial("test essai")
+    def read_trial_log(self, jid):
+        trial_list = list(range(3))
+
+        # Ajout des trials
+        for trial in trial_list:
+            trial_button = Trial(f"{jid}-{trial + 1}")
+            self.mount(trial_button)
 
 class Joblog(App):
     """A log reader for DNAnexus"""
@@ -64,19 +70,25 @@ class Joblog(App):
 
     CSS_PATH = "joblog.css"
 
-    @on(Job.Pressed)
-    def see_trials(self):
-        self.query_one("#job_panel").add_class("hidden")
-        self.query_one("#trial_panel").remove_class("hidden")
+    @on(Button.Pressed, "Job")
+    def see_trials(self, press):
+        # Switch pages
+        job_panel = self.query_one("#job_panel")
+        job_panel.add_class("hidden")
+        trial_panel = self.query_one("#trial_panel").remove_class("hidden")
+
+        # Create trials
+        job_id = press.button.jid
+        trial_panel.query_one(Alltrials).read_trial_log(jid=job_id)
 
     def compose(self):
         """Create child widgets for the app."""
         yield Header()
         yield Footer()
-        with ScrollableContainer(id="job_panel"):
+        with VerticalGroup(id="job_panel"):
             yield Alljobs()
-        with ScrollableContainer(id="trial_panel", classes="hidden"):
-            yield Specificjobs()
+        with VerticalGroup(id="trial_panel", classes="hidden"):
+            yield Alltrials()
 
     def action_toggle_dark(self):
         """An action to toggle dark mode."""
