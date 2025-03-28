@@ -34,9 +34,10 @@ class JobPage(Static):
         # Only if we're on the job page
         if not "hidden" in self.parent.classes:
             self.n_jobs += INCR
+        self.parent.query_one("#less").disabled = False
 
     @on(Button.Pressed, "#less")
-    def remove_jobs(self):
+    def remove_jobs(self, less_button):
         """Decrease the number of jobs displayed."""
         # Only if we're on the job page
         if not "hidden" in self.parent.classes:
@@ -61,6 +62,8 @@ class JobPage(Static):
         change_line = HorizontalGroup(classes="change_line")
         button_more = Button("More", id="more")
         button_less = Button("Less", id="less")
+        if self.n_jobs <= INCR:
+            button_less.disabled = True
         self.mount(change_line)
         change_line.mount(button_more)
         change_line.mount(button_less)
