@@ -1,12 +1,10 @@
 Button {
     width: 100%;
-    background: red;
 }
 
 .change_line {
     padding: 1;
     text-align: center;
-    background: yellow;
 }
 
 .change_line Button {

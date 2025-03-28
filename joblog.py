@@ -6,7 +6,7 @@ from textual.widgets import Header, Footer, Static, Button, Log
 
 from subprocess import Popen, PIPE
 
-INCR = 2
+INCR = 5
 
 class Job(Button):
     """ A job. """
@@ -37,7 +37,7 @@ class JobPage(Static):
         self.parent.query_one("#less").disabled = False
 
     @on(Button.Pressed, "#less")
-    def remove_jobs(self, less_button):
+    def remove_jobs(self):
         """Decrease the number of jobs displayed."""
         # Only if we're on the job page
         if not "hidden" in self.parent.classes:
@@ -65,7 +65,13 @@ class JobPage(Static):
             runtime = sep[-1].strip("()")
             job_label = f"Name: {name} State: {state} Runtime: {runtime} User:{user}"
             # Ajout des jobs
-            job_button = Job(label=job_label, jid=jid)
+            if state == "done":
+                button_variant = "success"
+            elif state == "failed":
+                button_variant = "error"
+            else:
+                button_variant = "warning"
+            job_button = Job(label=job_label, jid=jid, variant=button_variant)
             self.mount(job_button)
 
         # Ajout de l'utilitaire pour le changement du nb de lignes
@@ -112,8 +118,7 @@ class Joblog(App):
     BINDINGS = [
         ("h", "return_home", "Home"),
         ("b", "go_back", "Back"),
-        # ("+", "add_jobs", "View more"),
-        # ("-", "remove_jobs", "View less"),
+        ("r", "refresh", "Refresh"),
         ("d", "toggle_dark", "Toggle dark mode"),
         ]
 
@@ -122,23 +127,23 @@ class Joblog(App):
     @on(Button.Pressed, "Job")
     def see_trials(self, press):
         # Switch pages
-        job_page = self.query_one("#job_page")
-        job_page.add_class("hidden")
-        trial_page = self.query_one("#trial_page").remove_class("hidden")
+        job_container = self.query_one("#job_container")
+        job_container.add_class("hidden")
+        trial_container = self.query_one("#trial_container").remove_class("hidden")
 
         # Create trials
         job_id = press.button.jid
-        trial_page.query_one(TrialPage).read_trial_log(jid=job_id)
+        trial_container.query_one(TrialPage).read_trial_log(jid=job_id)
 
     @on(Button.Pressed, "Trial")
     def see_log(self, trial_button):
         # Switch pages
-        trial_page = self.query_one("#trial_page")
-        trial_page.add_class("hidden")
-        log_page = self.query_one("#log_page").remove_class("hidden")
+        trial_container = self.query_one("#trial_container")
+        trial_container.add_class("hidden")
+        log_container = self.query_one("#log_container").remove_class("hidden")
 
         # Remove previous log
-        log_page.query_one(Log).remove()
+        log_container.query_one(Log).remove()
         # Add new one
         n_trial = trial_button.button.n_trial
         jid = trial_button.button.jid
@@ -148,75 +153,79 @@ class Joblog(App):
         log_text = output.decode('utf-8').strip()
         log = Log()
         log.write_line(log_text)
-        log_page.mount(log)
+        log_container.mount(log)
 
         # Create trials
         # job_id = press.button.jid
-        # trial_page.query_one(TrialPage).read_trial_log(jid=job_id)
+        # trial_container.query_one(TrialPage).read_trial_log(jid=job_id)
 
     def compose(self):
         """Create child widgets for the app."""
         yield Header()
         yield Footer()
-        with VerticalGroup(id="job_page"):
+        with VerticalGroup(id="job_container"):
             yield JobPage()
-        with VerticalGroup(id="trial_page", classes="hidden"):
+        with VerticalGroup(id="trial_container", classes="hidden"):
             yield TrialPage()
-        with VerticalGroup(id="log_page", classes="hidden"):
+        with VerticalGroup(id="log_container", classes="hidden"):
             yield Log()
 
     def action_return_home(self):
         """An action to return to the main page."""
         # Efface tous les trials
-        trial_page = self.query_one("#trial_page")
-        trials = trial_page.query(Trial)
+        trial_container = self.query_one("#trial_container")
+        trials = trial_container.query(Trial)
         if trials: # s'il y en a
             trials.remove()
-        trial_page.add_class("hidden")
+        trial_container.add_class("hidden")
 
         # Cache le log
-        log_page = self.query_one("#log_page")
-        log_page.add_class("hidden")
+        log_container = self.query_one("#log_container")
+        log_container.add_class("hidden")
 
         # Réaffiche les jobs
-        self.query_one("#job_page").remove_class("hidden")
+        self.query_one("#job_container").remove_class("hidden")
 
     def action_go_back(self):
         """An action to return to the previous page."""
-        job_page = self.query_one("#job_page")
-        trial_page = self.query_one("#trial_page")
-        log_page = self.query_one("#log_page")
+        job_container = self.query_one("#job_container")
+        trial_container = self.query_one("#trial_container")
+        log_container = self.query_one("#log_container")
 
         # Si on est sur la page de trials
-        if not "hidden" in trial_page.classes:
-            trials = trial_page.query(Trial)
+        if not "hidden" in trial_container.classes:
+            trials = trial_container.query(Trial)
             if trials: # s'il y en a
                 trials.remove()
-            trial_page.add_class("hidden")
-            job_page.remove_class("hidden")
+            trial_container.add_class("hidden")
+            job_container.remove_class("hidden")
 
         # Si on est sur la page de log
-        if not "hidden" in log_page.classes:
-            log_page.add_class("hidden")
-            trial_page.remove_class("hidden")
+        if not "hidden" in log_container.classes:
+            log_container.add_class("hidden")
+            trial_container.remove_class("hidden")
 
-    # def action_add_jobs(self):
-    #     """Increase the number of jobs displayed."""
-    #     job_page = self.query_one("#job_page")
-    #     # Only if we're on the job page
-    #     if not "hidden" in job_page.classes:
-    #         alljobs = job_page.query_one(JobPage)
-    #         alljobs.n_jobs += INCR
+    def action_refresh(self):
+        """Refresh page."""
+        job_container = self.query_one("#job_container")
+        trial_container = self.query_one("#trial_container")
 
-    # def action_remove_jobs(self):
-    #     """Decrease the number of jobs displayed."""
-    #     job_page = self.query_one("#job_page")
-    #     # Only if we're on the job page
-    #     if not "hidden" in job_page.classes:
-    #         alljobs = job_page.query_one(JobPage)
-    #         # And there are enough jobs to remove
-    #         if alljobs.n_jobs > INCR:
-    #             alljobs.n_jobs -= INCR
+        # Si on est sur la page de trials
+        if not "hidden" in job_container.classes:
+            job_page = job_container.query_one(JobPage)
+            data = job_page.query()
+            if data: # s'il y a qqch
+                data.remove()
+            job_page.read_job_log()
+
+        # Si on est sur la page de trials
+        if not "hidden" in trial_container.classes:
+            trial_page = trial_container.query_one(TrialPage)
+            data = trial_page.query()
+            jid = data.first(Trial).jid
+            if data: # s'il y a qqch
+                data.remove()
+            trial_page.read_trial_log(jid)
 
     def action_toggle_dark(self):
         """An action to toggle dark mode."""
