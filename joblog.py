@@ -2,7 +2,7 @@ from textual import on
 from textual.app import App
 from textual.containers import VerticalGroup, HorizontalGroup
 from textual.reactive import reactive
-from textual.widgets import Header, Footer, Static, Button
+from textual.widgets import Header, Footer, Static, Button, Log
 
 from subprocess import Popen, PIPE
 
@@ -17,11 +17,11 @@ class Job(Button):
 
 class Trial(Button):
     """ A trial. """
-    pass
-
-class Log(Static):
-    """The log of a trial."""
-    pass
+    def __init__(self, label: str, jid: str, n_trial: str, **kwargs):
+        # Initialisation du bouton avec le label et l'id
+        super().__init__(label, **kwargs)
+        self.jid = jid
+        self.n_trial = n_trial
 
 class JobPage(Static):
     """The page with all jobs."""
@@ -48,14 +48,24 @@ class JobPage(Static):
     def read_job_log(self):
         """ Create jobs from job log. """
         # Info des jobs
-        command = ["dx", "find", "jobs", "-n", f"{self.n_jobs}", "--brief"]
+        command = ["dx", "find", "jobs", "-n", f"{self.n_jobs}"]
         process = Popen(command, stdout=PIPE, stderr=PIPE)
         output, _ = process.communicate()
-        job_lists = output.decode('utf-8').split()
+        job_list = output.decode('utf-8').split("* ")[1:]
+        if (job_list[-1]).startswith("More"):
+            job_list = job_list[:-1]
 
-        # Ajout des jobs
-        for job in job_lists:
-            job_button = Job(label=str(job), jid=f"{job}")
+        # Récupération des infos
+        for job in job_list:
+            sep = job.split()
+            name = sep[0]
+            state = sep[2].strip("()")
+            jid = sep[3]
+            user = sep[4]
+            runtime = sep[-1].strip("()")
+            job_label = f"Name: {name} State: {state} Runtime: {runtime} User:{user}"
+            # Ajout des jobs
+            job_button = Job(label=job_label, jid=jid)
             self.mount(job_button)
 
         # Ajout de l'utilitaire pour le changement du nb de lignes
@@ -82,12 +92,19 @@ class TrialPage(Static):
     """The page with all trials of a job."""
 
     def read_trial_log(self, jid):
-        trial_list = list(range(3))
-
         # Ajout des trials
-        for trial in trial_list:
-            trial_button = Trial(f"{jid}-{trial + 1}")
-            self.mount(trial_button)
+        working_trial = True
+        n_trial = 0
+        while working_trial is True:
+            trial_command = ["dx", "watch", jid, "--try", str(n_trial)]
+            process = Popen(trial_command, stdout=PIPE, stderr=PIPE)
+            output, _ = process.communicate()
+            if output:
+                n_trial += 1
+                trial_button = Trial(f"{jid}-{n_trial}", jid=jid, n_trial=n_trial)
+                self.mount(trial_button)
+            else :
+                working_trial = False
 
 class Joblog(App):
     """A log reader for DNAnexus"""
@@ -114,7 +131,7 @@ class Joblog(App):
         trial_page.query_one(TrialPage).read_trial_log(jid=job_id)
 
     @on(Button.Pressed, "Trial")
-    def see_log(self):
+    def see_log(self, trial_button):
         # Switch pages
         trial_page = self.query_one("#trial_page")
         trial_page.add_class("hidden")
@@ -123,7 +140,14 @@ class Joblog(App):
         # Remove previous log
         log_page.query_one(Log).remove()
         # Add new one
-        log = Log("test log")
+        n_trial = trial_button.button.n_trial
+        jid = trial_button.button.jid
+        command = ["dx", "watch", f"{jid}", "--try", f"{n_trial-1}"]
+        process = Popen(command, stdout=PIPE, stderr=PIPE)
+        output, err = process.communicate()
+        log_text = output.decode('utf-8').strip()
+        log = Log()
+        log.write_line(log_text)
         log_page.mount(log)
 
         # Create trials
