@@ -18,3 +18,11 @@ Button {
 .hidden {
     display: none;
 }
+
+.successful {
+    color: green;
+}
+
+.fail {
+    color: red;
+}

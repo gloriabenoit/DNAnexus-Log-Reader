@@ -1,22 +1,23 @@
+"""An app to read the logs of DNAnexus jobs."""
+
+from subprocess import Popen, PIPE
 from textual import on
 from textual.app import App
 from textual.containers import VerticalGroup, HorizontalGroup
 from textual.reactive import reactive
 from textual.widgets import Header, Footer, Static, Button, Log
 
-from subprocess import Popen, PIPE
-
 INCR = 5
 
 class Job(Button):
-    """ A job. """
+    """A job."""
     def __init__(self, label: str, jid: str, **kwargs):
         # Initialisation du bouton avec le label et l'id
         super().__init__(label, **kwargs)
         self.jid = jid
 
 class Trial(Button):
-    """ A trial. """
+    """A trial."""
     def __init__(self, label: str, jid: str, n_trial: str, **kwargs):
         # Initialisation du bouton avec le label et l'id
         super().__init__(label, **kwargs)
@@ -46,7 +47,7 @@ class JobPage(Static):
                 self.n_jobs -= INCR
 
     def read_job_log(self):
-        """ Create jobs from job log. """
+        """Create jobs from job log."""
         # Info des jobs
         command = ["dx", "find", "jobs", "-n", f"{self.n_jobs}"]
         process = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -63,7 +64,8 @@ class JobPage(Static):
             jid = sep[3]
             user = sep[4]
             runtime = sep[-1].strip("()")
-            job_label = f"Name: {name} State: {state} Runtime: {runtime} User:{user}"
+            # job_label = f"Name: {name} State: {state} Runtime: {runtime} User:{user}"
+            job_label = f"{name:^30s} | {state:^7s} | {runtime:^8} | {user:^15s}"
             # Ajout des jobs
             if state == "done":
                 button_variant = "success"
@@ -85,7 +87,7 @@ class JobPage(Static):
         change_line.mount(button_less)
 
     def watch_n_jobs(self):
-        """ When n_jobs changes. """
+        """When n_jobs changes."""
         # Efface tout
         data = self.query()
         if data: # s'il y a qqch
@@ -98,6 +100,7 @@ class TrialPage(Static):
     """The page with all trials of a job."""
 
     def read_trial_log(self, jid):
+        """Create trials from job."""
         # Ajout des trials
         working_trial = True
         n_trial = 0
@@ -106,14 +109,22 @@ class TrialPage(Static):
             process = Popen(trial_command, stdout=PIPE, stderr=PIPE)
             output, _ = process.communicate()
             if output:
-                n_trial += 1
-                trial_button = Trial(f"{jid}-{n_trial}", jid=jid, n_trial=n_trial)
+                trial_button = Trial(f"Trial n°{n_trial + 1}",
+                                     jid=jid,
+                                     n_trial=n_trial,
+                                     classes="fail")
                 self.mount(trial_button)
+                n_trial += 1
             else :
                 working_trial = False
 
+        # Coloration des boutons
+        successful = self.query(Trial).last()
+        successful.remove_class("fail")
+        successful.add_class("successful")
+
 class Joblog(App):
-    """A log reader for DNAnexus"""
+    """A log reader for DNAnexus."""
 
     BINDINGS = [
         ("h", "return_home", "Home"),
@@ -126,7 +137,8 @@ class Joblog(App):
 
     @on(Button.Pressed, "Job")
     def see_trials(self, press):
-        # Switch pages
+        """Switch to the trials page."""
+        # Hide other pages pages
         job_container = self.query_one("#job_container")
         job_container.add_class("hidden")
         trial_container = self.query_one("#trial_container").remove_class("hidden")
@@ -137,6 +149,7 @@ class Joblog(App):
 
     @on(Button.Pressed, "Trial")
     def see_log(self, trial_button):
+        """Switch to the log page."""
         # Switch pages
         trial_container = self.query_one("#trial_container")
         trial_container.add_class("hidden")
@@ -147,17 +160,13 @@ class Joblog(App):
         # Add new one
         n_trial = trial_button.button.n_trial
         jid = trial_button.button.jid
-        command = ["dx", "watch", f"{jid}", "--try", f"{n_trial-1}"]
+        command = ["dx", "watch", f"{jid}", "--try", f"{n_trial}"]
         process = Popen(command, stdout=PIPE, stderr=PIPE)
         output, err = process.communicate()
         log_text = output.decode('utf-8').strip()
         log = Log()
         log.write_line(log_text)
         log_container.mount(log)
-
-        # Create trials
-        # job_id = press.button.jid
-        # trial_container.query_one(TrialPage).read_trial_log(jid=job_id)
 
     def compose(self):
         """Create child widgets for the app."""
@@ -210,7 +219,7 @@ class Joblog(App):
         job_container = self.query_one("#job_container")
         trial_container = self.query_one("#trial_container")
 
-        # Si on est sur la page de trials
+        # Si on est sur la page de jobs
         if not "hidden" in job_container.classes:
             job_page = job_container.query_one(JobPage)
             data = job_page.query()
