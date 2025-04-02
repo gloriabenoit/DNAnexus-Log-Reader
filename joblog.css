@@ -15,6 +15,15 @@ Button {
     dock: right;
 }
 
+/* #less {
+    dock: left;
+}
+
+.change_line Static {
+    text-align: center;
+    height: 5;
+} */
+
 .hidden {
     display: none;
 }
@@ -25,4 +34,12 @@ Button {
 
 .fail {
     color: red;
+}
+
+.testing {
+    background: blueviolet;
+}
+
+.oui {
+    background: yellow;
 }
