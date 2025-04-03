@@ -1,43 +1,74 @@
 """An app to read the logs of DNAnexus jobs."""
 
-import sys
 import argparse
 import asyncio
+import re
+import sys
+
 from subprocess import Popen, PIPE
+
 from textual import on
 from textual.app import App
-from textual.containers import VerticalGroup, HorizontalGroup, Center
+from textual.binding import Binding
+from textual.containers import Center, HorizontalGroup, VerticalGroup
 from textual.reactive import reactive
-from textual.widgets import Header, Footer, Static, Button, Log, ProgressBar
+from textual.widgets import Button, Footer, Input, Log, ProgressBar, Static
+
+class SearchBar(Input):
+    """A search bar."""
+    BINDINGS = [
+        Binding("escape", "blur"),
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False
+
+    def action_blur(self) -> None:
+        """Unfocus search bar."""
+        # Focus on first job viewed
+        self.parent.query(Job).first().focus()
+
+    def action_submit(self):
+        """When a search is submitted."""
+        self.action_blur()
+
+        # Search for matches
+        job_page = self.parent.query_one(JobPage)
+        job_page.search = str(self.value)
+        job_page.show_all_jobs()
 
 class Job(Button):
     """A job."""
+
     def __init__(self,
                  jid: str,
                  jobname: str,
-                 state: str,
-                 runtime: str,
-                 user: str,
                  outputs: list,
+                 runtime: str,
+                 state: str,
+                 user: str,
                  **kwargs):
-        # Initialisation du bouton avec le label et l'id
         self.jid = jid
         self.jobname = jobname
-        self.state = state
-        self.runtime = runtime
-        self.user = user
         self.outputs = outputs
+        self.runtime = runtime
+        self.state = state
+        self.user = user
         label = f"{jobname:^30s} | {runtime:^8} | {state:^7s} | {user:^15s}"
         super().__init__(label, **kwargs)
 
 class JobPage(Static):
     """The page with all jobs."""
 
-    n_jobs_total = reactive(0)
     n_jobs_shown = reactive(0)
+    n_jobs_total = reactive(0)
+
     show_done = False
     show_running = False
     show_failed = False
+
+    search = reactive("")
 
     @on(Button.Pressed, "#more")
     def add_jobs(self):
@@ -52,7 +83,6 @@ class JobPage(Static):
     @on(Button.Pressed, "#less")
     def remove_jobs(self):
         """Decrease the number of jobs displayed."""
-        # And there are enough jobs to remove
         if self.n_jobs_shown > self.step:
             self.n_jobs_shown -= self.step
         if self.n_jobs_shown <= self.step:
@@ -71,12 +101,12 @@ class JobPage(Static):
 
     def read_job_log(self):
         """Create jobs from job log."""
-        # Efface tout
+        # Remove everything
         data = self.query()
-        if data: # s'il y a qqch
+        if data: # If there's anything
             data.remove()
 
-        # Info des jobs
+        # Get latest jobs
         command = ["dx", "find", "jobs", "-n", f"{self.n_jobs_total}", "--show-outputs"]
         if self.user:
             command += ["--user", f"{self.user}"]
@@ -88,7 +118,7 @@ class JobPage(Static):
             if (job_list[-1]).startswith("More"):
                 job_list = job_list[:-1]
 
-            # Pour chaque job
+            # For every job found
             for i, job in enumerate(job_list):
                 sep = job.split()
                 # Info
@@ -107,7 +137,7 @@ class JobPage(Static):
                             outputs += sep[i]
                         outputs = outputs.split(',')
 
-                # Coloration
+                # Color
                 if state == "done":
                     button_variant = "success"
                 elif state == "failed":
@@ -115,18 +145,18 @@ class JobPage(Static):
                 else:
                     button_variant = "warning"
 
-                # Ajout du job
+                # Add the job
                 job_button = Job(jid=jid,
                                  jobname=jobname,
-                                 state=state,
-                                 runtime=runtime,
-                                 user=user,
                                  outputs=outputs,
+                                 runtime=runtime,
+                                 state=state,
+                                 user=user,
                                  variant=button_variant,
                                  classes="hidden")
                 self.mount(job_button)
 
-            # Ajout de l'utilitaire pour le changement du nb de lignes
+            # Add utilities
             change_line = HorizontalGroup(classes="change_line")
             button_more = Button("More", id="more")
             button_less = Button("Less", id="less")
@@ -140,7 +170,6 @@ class JobPage(Static):
 
     def show_jobs(self):
         """View jobs."""
-        # self.restart_count(total=False)
         jobs = self.query(Job)
         gap = 0
         if len(jobs) != self.n_jobs_total:
@@ -159,12 +188,15 @@ class JobPage(Static):
                     if job.state == "failed":
                         job.remove_class("hidden")
                 else:
-                    job.remove_class("hidden")
+                    if self.search:
+                        if re.search(self.search, job.jobname):
+                            job.remove_class("hidden")
+                        else:
+                            job.add_class("hidden")
+                    else:
+                        job.remove_class("hidden")
             else:
                 job.add_class("hidden")
-        # update_number = self.query("#number_jobs")
-        # for job in update_number:
-        #     job.update(f"{self.n_jobs_shown} out of {self.n_jobs_total} jobs.")
 
     def hide_all_jobs(self):
         """Hide all jobs shown."""
@@ -172,12 +204,23 @@ class JobPage(Static):
         for job in jobs:
             job.add_class("hidden")
 
+    def show_all_jobs(self):
+        """Show all jobs."""
+        self.show_done = False
+        self.show_running = False
+        self.show_failed = False
+        self.show_jobs()
+
     def watch_n_jobs_total(self):
         """When n_jobs_total changes."""
         self.read_job_log()
 
     def watch_n_jobs_shown(self):
         """When n_jobs_shown changes."""
+        self.show_jobs()
+
+    def watch_search(self):
+        """When you search something."""
         self.show_jobs()
 
 class LogPage(Static):
@@ -219,6 +262,7 @@ class Joblog(App):
         ("f", "show_failed", "Failed"),
         ("m", "add_jobs", "More"),
         ("l", "remove_jobs", "Less"),
+        ("s", "search_jobs", "Search"),
         ]
 
     CSS_PATH = "joblog.css"
@@ -226,7 +270,12 @@ class Joblog(App):
     @on(Button.Pressed, "Job")
     def see_log(self, press):
         """Switch to the log page."""
-        # Hide other pages pages
+        # Remove search bar
+        search_bar = self.query_one(SearchBar)
+        if "hidden" not in search_bar.classes:
+            self.action_search_jobs()
+
+        # Hide other pages
         job_container = self.query_one("#job_container")
         job_container.add_class("hidden")
         log_container = self.query_one("#log_container").remove_class("hidden")
@@ -234,15 +283,15 @@ class Joblog(App):
         log_page.outputs = press.button.outputs
         log_page.state = press.button.state
 
-        # Disable download button if necessary
+        # Hide download button if necessary
         log_page.outputs = press.button.outputs
         download_button = log_page.query_one(Button)
         if log_page.outputs:
-            download_button.disabled = False
+            download_button.remove_class("hidden")
         else:
-            download_button.disabled = True
+            download_button.add_class("hidden")
 
-        # Add new one
+        # Show job log
         jid = press.button.jid
         command = ["dx", "watch", f"{jid}"]
         process = Popen(command, stdout=PIPE, stderr=PIPE)
@@ -253,15 +302,15 @@ class Joblog(App):
         log_page.mount(log)
 
     def __init__(self, *args, user: str, n_lines: int, step: int, **kwargs):
+        super().__init__(*args, **kwargs)
         self.user = user
         self.n_lines = n_lines
         self.step = step
-        super().__init__(*args, **kwargs)
 
     def compose(self):
         """Create child widgets for the app."""
-        yield Header()
-        yield Footer()
+        yield SearchBar(placeholder="Press Enter to submit query.",
+                        classes="hidden")
         with VerticalGroup(id="job_container"):
             yield JobPage(user=self.user,
                           n_lines=self.n_lines,
@@ -269,22 +318,7 @@ class Joblog(App):
                           )
         with VerticalGroup(id="log_container", classes="hidden"):
             yield LogPage()
-
-    def action_home(self):
-        """An action to return to the main page."""
-        job_container = self.query_one("#job_container")
-
-        # Si on est pas sur la page des jobs
-        if "hidden" in job_container.classes:
-            # Vide et cache le log
-            log_container = self.query_one("#log_container")
-            log_container.add_class("hidden")
-            log_page = log_container.query_one(LogPage)
-            log_page.query_one(Log).remove()
-
-            # Réaffiche les jobs
-            self.query_one("#job_container").remove_class("hidden")
-        self.refresh_bindings()
+        yield Footer()
 
     def action_quit(self):
         """An action to quit the app."""
@@ -300,17 +334,30 @@ class Joblog(App):
             job_page.read_job_log()
             job_page.show_jobs()
 
+    def action_home(self):
+        """An action to return to the main page."""
+        # Empty and hide the log page
+        log_container = self.query_one("#log_container")
+        log_container.add_class("hidden")
+        log_page = log_container.query_one(LogPage)
+        log_page.query_one(Log).remove()
+
+         # Show job page
+        self.query_one("#job_container").remove_class("hidden")
+        self.refresh_bindings()
+
     def action_show_all(self):
         """Show only done jobs."""
         job_page = self.query_one(JobPage)
 
-        # Reset all filters
-        job_page.show_done = False
-        job_page.show_running = False
-        job_page.show_failed = False
+        # Remove search
+        job_page.search = ""
+        search_bar = self.query_one(SearchBar)
+        if "hidden" not in search_bar.classes:
+            self.action_search_jobs()
 
         # Update page
-        job_page.show_jobs()
+        job_page.show_all_jobs()
 
     def action_show_done(self):
         """Show only done jobs."""
@@ -320,6 +367,12 @@ class Joblog(App):
         job_page.show_done = True
         job_page.show_running = False
         job_page.show_failed = False
+
+        # Remove search
+        job_page.search = ""
+        search_bar = self.query_one(SearchBar)
+        if "hidden" not in search_bar.classes:
+            self.action_search_jobs()
 
         # Update page
         job_page.hide_all_jobs()
@@ -334,6 +387,12 @@ class Joblog(App):
         job_page.show_running = True
         job_page.show_failed = False
 
+        # Remove search
+        job_page.search = ""
+        search_bar = self.query_one(SearchBar)
+        if "hidden" not in search_bar.classes:
+            self.action_search_jobs()
+
         # Update page
         job_page.hide_all_jobs()
         job_page.show_jobs()
@@ -347,6 +406,12 @@ class Joblog(App):
         job_page.show_running = False
         job_page.show_failed = True
 
+        # Remove search
+        job_page.search = ""
+        search_bar = self.query_one(SearchBar)
+        if "hidden" not in search_bar.classes:
+            self.action_search_jobs()
+
         # Update page
         job_page.hide_all_jobs()
         job_page.show_jobs()
@@ -359,10 +424,27 @@ class Joblog(App):
         """Decrease the number of jobs displayed."""
         self.query_one(JobPage).remove_jobs()
 
+    def action_search_jobs(self):
+        """Open/close the search bar."""
+        search_bar = self.query_one(SearchBar)
+        search_bar.toggle_class("hidden")
+        if "hidden" not in search_bar.classes:
+            search_bar.can_focus = True
+            search_bar.focus(scroll_visible=True)
+        else:
+            search_bar.can_focus = False
+            search_bar.value = ""
+            job_page = self.query_one(JobPage)
+            job_page.search = ""
+
     def check_action(self, action: str, parameters: tuple[object, ...]):
-        """Check if an action may run."""
+        """Check if an action may run.
+
+        Helps with hiding keybinds from specific pages.
+        """
         no_job_binds = ["show_all", "show_done", "show_running",
-                        "show_failed", "add_jobs", "remove_jobs"]
+                        "show_failed", "add_jobs", "remove_jobs",
+                        "search_jobs"]
         no_log_binds = ["home"]
 
         if (action in no_log_binds and
@@ -403,4 +485,3 @@ if __name__ == "__main__":
 
     app = Joblog(user=USER, n_lines=NLINES, step=STEP)
     app.run()
-    sys.exit()
