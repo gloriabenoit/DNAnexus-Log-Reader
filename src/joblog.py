@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import datetime
 import re
 import sys
 
@@ -48,6 +49,7 @@ class Job(Button):
                  runtime: str,
                  state: str,
                  user: str,
+                 date: str,
                  **kwargs):
         self.jid = jid
         self.jobname = jobname
@@ -55,7 +57,8 @@ class Job(Button):
         self.runtime = runtime
         self.state = state
         self.user = user
-        label = f"{jobname:^30s} | {runtime:^8} | {state:^7s} | {user:^15s}"
+        self.date = date
+        label = f"{jobname:^30s} | {date} | {runtime:^8} | {state:^7s} | {user:^15s}"
         super().__init__(label, **kwargs)
 
 class JobPage(Static):
@@ -121,16 +124,27 @@ class JobPage(Static):
             # For every job found
             for i, job in enumerate(job_list):
                 sep = job.split()
-                # Info
-                jobname = sep[0]
-                state = sep[2].strip("()")
-                jid = sep[3]
-                user = sep[4]
+
+                # Get positions
+                parenthesis_info = [sep.index(info) for info in sep if info.startswith('(')]
+                exec_id = parenthesis_info[0]
+
+                # Get info
+                jobname = " ".join(sep[:exec_id])
+                # If the job is cached
+                if jobname.startswith('['):
+                    continue
+                state = sep[parenthesis_info[1]].strip("()")
+                jid = sep[parenthesis_info[1] + 1]
+                user = sep[parenthesis_info[1] + 2]
+                date = sep[parenthesis_info[1] + 3]
+                date = datetime.datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m/%y')
                 runtime = "-"
                 outputs = ""
+
                 if state == "done":
                     if sep[sep.index('Output:')+1] != '-':
-                        runtime = sep[8].strip("()")
+                        runtime = sep[parenthesis_info[2] + 1].strip("()")
                         output_start = sep.index('[')
                         output_end = sep.index(']')
                         for i in range(output_start + 1, output_end):
@@ -142,8 +156,10 @@ class JobPage(Static):
                     button_variant = "success"
                 elif state == "failed":
                     button_variant = "error"
+                elif state == "running":
+                    button_variant = "primary"
                 else:
-                    button_variant = "warning"
+                    button_variant = "default"
 
                 # Add the job
                 job_button = Job(jid=jid,
@@ -152,6 +168,7 @@ class JobPage(Static):
                                  runtime=runtime,
                                  state=state,
                                  user=user,
+                                 date=date,
                                  variant=button_variant,
                                  classes="hidden")
                 self.mount(job_button)
@@ -189,7 +206,9 @@ class JobPage(Static):
                         job.remove_class("hidden")
                 else:
                     if self.search:
-                        if re.search(self.search, job.jobname):
+                        if (re.search(self.search, job.jobname) or
+                            re.search(self.search, job.user) or
+                            re.search(self.search, job.date)):
                             job.remove_class("hidden")
                         else:
                             job.add_class("hidden")
@@ -251,6 +270,9 @@ class LogPage(Static):
 
 class Joblog(App):
     """A log reader for DNAnexus."""
+
+    # Hide palette keybind
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -468,7 +490,7 @@ if __name__ == "__main__":
                         )
     parser.add_argument('-n',
                         dest="n_lines",
-                        default=10,
+                        default=100,
                         type=int,
                         help="show n jobs"
                         )
