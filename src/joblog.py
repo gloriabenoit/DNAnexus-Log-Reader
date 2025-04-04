@@ -199,7 +199,7 @@ class JobPage(Static):
                     if job.state == "done":
                         job.remove_class("hidden")
                 elif self.show_running is True:
-                    if (job.state != "done") and (job.state != "failed"):
+                    if job.state == "running":
                         job.remove_class("hidden")
                 elif self.show_failed is True:
                     if job.state == "failed":
@@ -496,7 +496,7 @@ if __name__ == "__main__":
                         )
     parser.add_argument('-s',
                         dest="step",
-                        default=5,
+                        default=100,
                         type=int,
                         help="add/remove s jobs"
                         )
