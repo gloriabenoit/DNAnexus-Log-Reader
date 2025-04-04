@@ -486,19 +486,19 @@ if __name__ == "__main__":
                         dest="user",
                         default="",
                         type=str,
-                        help="show only jobs from said user"
+                        help="show only jobs from said user (default: none)"
                         )
     parser.add_argument('-n',
                         dest="n_lines",
                         default=100,
                         type=int,
-                        help="show n jobs"
+                        help="show n jobs (default: 100)"
                         )
     parser.add_argument('-s',
                         dest="step",
                         default=100,
                         type=int,
-                        help="add/remove s jobs"
+                        help="add/remove s jobs (default: 100)"
                         )
 
     # Arguments
